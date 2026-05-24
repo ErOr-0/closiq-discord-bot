@@ -19,6 +19,11 @@ const tabs: Array<{ id: AppTab; label: string; description: string }> = [
     label: "Knowledgebase",
     description: "AI context documents",
   },
+  {
+    id: "commands",
+    label: "Agent Commands",
+    description: "Manage active AI tools live",
+  },
 ];
 
 export function Shell({ activeTab, onTabChange, children }: ShellProps) {

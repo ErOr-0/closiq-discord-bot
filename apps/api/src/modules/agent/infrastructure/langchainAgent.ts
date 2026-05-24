@@ -14,7 +14,6 @@ export async function runLangchainAgent(input: {
 }): Promise<string> {
   // 1. Fetch available commands from MongoDB (our lookup table)
   const enabledCommandsFromDb = await CommandModel.find({ enabled: true }).lean();
-  logger.info(`Fetched ${enabledCommandsFromDb.length} enabled commands from MongoDB Lookup Table.`);
 
   // 2. Dynamically construct LangChain Structured Tools for those enabled commands
   const langchainTools: DynamicStructuredTool[] = [];
@@ -22,22 +21,20 @@ export async function runLangchainAgent(input: {
   for (const dbCmd of enabledCommandsFromDb) {
     const registryDef = commandDefinitions[dbCmd.name];
     if (!registryDef) {
-      logger.warn(`Command '${dbCmd.name}' is enabled in DB lookup, but no TypeScript implementation was found in the registry.`);
+      logger.warn(`Command '${dbCmd.name}' is enabled in DB, but no implementation was found.`);
       continue;
     }
 
-    // Instantiate a standard LangChain DynamicStructuredTool
     const dynamicTool = new DynamicStructuredTool({
       name: registryDef.name,
       description: registryDef.description,
       schema: registryDef.schema,
       func: async (args) => {
-        logger.info(`LangChain invoking tool ${registryDef.name}...`, { args });
         try {
           const result = await registryDef.execute(args);
           return JSON.stringify(result);
         } catch (error) {
-          logger.error(`Error in LangChain tool execution for '${registryDef.name}'`, { error });
+          logger.error(`Error in tool execution for '${registryDef.name}'`, { error });
           return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
         }
       }
@@ -45,8 +42,6 @@ export async function runLangchainAgent(input: {
 
     langchainTools.push(dynamicTool);
   }
-
-  logger.info(`Loaded ${langchainTools.length} tools into the LangChain Agent runtime.`);
 
   // 3. Initialize the LangChain OpenAI/OpenRouter model
   let model: ChatOpenAI;
@@ -71,7 +66,6 @@ export async function runLangchainAgent(input: {
       temperature: 0.2,
     });
   } else {
-    // Return dev reply if no keys are set
     return "LangChain Agent Mode: No OpenAI or OpenRouter API key found in your environment variables. Please configure your .env file.";
   }
 
@@ -104,35 +98,29 @@ You also have direct access to tools to manage customer records and order status
 
   while (runCount < maxRuns) {
     runCount++;
-    logger.info(`[LangChain] Running agent step ${runCount}/${maxRuns}...`);
 
     const response = await modelWithTools.invoke(messages);
     messages.push(response);
 
     if (response.additional_kwargs.tool_calls && response.additional_kwargs.tool_calls.length > 0) {
       const toolCalls = response.additional_kwargs.tool_calls;
-      logger.info(`[LangChain] Model requested execution of ${toolCalls.length} tools`, {
-        toolCalls: toolCalls.map((tc: any) => tc.function.name),
-      });
 
       for (const tc of toolCalls) {
         const toolName = tc.function.name;
         const toolId = tc.id;
         const toolArgsStr = tc.function.arguments;
 
-        logger.info(`[LangChain] Executing tool ${toolName}...`, { toolArgs: toolArgsStr });
-
         const tool = langchainTools.find((t) => t.name === toolName);
         let output: string;
 
         if (!tool) {
-          output = JSON.stringify({ success: false, message: `Tool ${toolName} is not registered in the dynamic LangChain scope.` });
+          output = JSON.stringify({ success: false, message: `Tool ${toolName} is not registered.` });
         } else {
           try {
             const parsedArgs = JSON.parse(toolArgsStr);
             output = await tool.invoke(parsedArgs);
           } catch (error) {
-            logger.error(`[LangChain] Failed to execute tool ${toolName}`, { error });
+            logger.error(`Failed to execute tool ${toolName}`, { error });
             output = JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
           }
         }
@@ -144,7 +132,6 @@ You also have direct access to tools to manage customer records and order status
         }));
       }
     } else {
-      // No more tool calls; we are finished!
       return typeof response.content === "string"
         ? response.content
         : "Hello! I am having trouble forming a response right now.";

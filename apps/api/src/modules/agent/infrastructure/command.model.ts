@@ -38,7 +38,6 @@ export async function seedCommands() {
   try {
     const count = await CommandModel.countDocuments();
     if (count > 0) {
-      logger.info(`Command Lookup Table already seeded with ${count} commands.`);
       return;
     }
 

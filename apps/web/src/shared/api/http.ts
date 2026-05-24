@@ -18,6 +18,16 @@ export async function apiPost<T>(path: string, body: unknown) {
   });
 }
 
+export async function apiPatch<T>(path: string, body: unknown) {
+  return request<T>(path, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiPostForm<T>(path: string, body: FormData) {
   return request<T>(path, {
     method: "POST",
