@@ -58,9 +58,15 @@ async function handleMessage(message: Message) {
     return;
   }
 
+  let channelName: string | undefined;
+  if (message.channel && "name" in message.channel) {
+    channelName = (message.channel as any).name;
+  }
+
   const inbound = await recordMessage({
     discordMessageId: message.id,
     channelId: message.channelId,
+    channelName,
     authorId: message.author.id,
     authorName: message.author.username,
     content: message.content,
@@ -76,6 +82,7 @@ async function handleMessage(message: Message) {
     message: message.content,
     authorId: message.author.id,
     authorName: message.author.username,
+    channelId: message.channelId,
   });
   const replyContent = agentResponse.answer.slice(0, 1900);
 
@@ -89,6 +96,7 @@ async function handleMessage(message: Message) {
   await recordMessage({
     discordMessageId: reply.id,
     channelId: reply.channelId,
+    channelName,
     authorId: reply.author.id,
     authorName: reply.author.username,
     content: replyContent,

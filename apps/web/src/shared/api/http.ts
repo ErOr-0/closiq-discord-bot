@@ -18,6 +18,16 @@ export async function apiPost<T>(path: string, body: unknown) {
   });
 }
 
+export async function apiPatch<T>(path: string, body: unknown) {
+  return request<T>(path, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiPostForm<T>(path: string, body: FormData) {
   return request<T>(path, {
     method: "POST",
@@ -34,7 +44,11 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    const message = errorBody?.error?.message ?? `Request failed with ${response.status}`;
+    const message =
+      errorBody?.error?.message ||
+      (typeof errorBody?.error === "string" ? errorBody.error : null) ||
+      errorBody?.message ||
+      `Request failed with ${response.status}`;
     throw new Error(message);
   }
 

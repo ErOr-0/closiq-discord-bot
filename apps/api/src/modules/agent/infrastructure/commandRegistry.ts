@@ -355,4 +355,47 @@ export const commandDefinitions: Record<string, CommandDefinition> = {
       }
     },
   },
+
+  resolve_current_thread: {
+    name: "resolve_current_thread",
+    description: "Mark the current chat/support thread as resolved. Use this when the customer confirms their issue is solved or says thank you.",
+    parameters: {
+      type: "object",
+      properties: {
+        channelId: {
+          type: "string",
+          description: "The current channel or thread ID (e.g. 'manual-test-channel')",
+        },
+      },
+      required: ["channelId"],
+    },
+    schema: z.object({
+      channelId: z.string().describe("The current channel or thread ID"),
+    }),
+    execute: async ({ channelId }) => {
+      try {
+        const { ThreadModel, SessionModel } = await import("../../messages/infrastructure/message.model");
+        const thread = await ThreadModel.findOneAndUpdate(
+          { channelId, status: "open" },
+          { status: "resolved" },
+          { new: true }
+        ).lean();
+
+        if (!thread) {
+          return { success: false, message: `No active open thread found in channel: ${channelId}` };
+        }
+
+        // Also complete any active sessions under this thread
+        await SessionModel.updateMany(
+          { threadId: String((thread as any)._id), status: "active" },
+          { status: "completed" }
+        );
+
+        return { success: true, message: `Successfully resolved active support thread for channel ${channelId}` };
+      } catch (error) {
+        logger.error("Error in resolve_current_thread command", { error });
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  },
 };
