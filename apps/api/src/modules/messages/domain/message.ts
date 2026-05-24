@@ -8,6 +8,7 @@ export type CustomerMessage = {
   id: string;
   discordMessageId?: string;
   channelId: string;
+  channelName?: string;
   authorId: string;
   authorName: string;
   content: string;
@@ -15,6 +16,8 @@ export type CustomerMessage = {
   status: MessageStatus;
   responseToMessageId?: string;
   aiGenerated: boolean;
+  threadId?: string;
+  sessionId?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -2,7 +2,7 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { CommandModel } from "./command.model";
 import { commandDefinitions } from "./commandRegistry";
 import { ChatOpenAI } from "@langchain/openai";
-import { SystemMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
+import { SystemMessage, HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { env } from "../../../config/env";
 import { logger } from "../../../config/logger";
 
@@ -11,6 +11,8 @@ export async function runLangchainAgent(input: {
   context: string;
   authorId?: string;
   authorName?: string;
+  channelId?: string;
+  history?: Array<{ content: string; direction: "inbound" | "outbound" }>;
 }): Promise<string> {
   // 1. Fetch available commands from MongoDB (our lookup table)
   const enabledCommandsFromDb = await CommandModel.find({ enabled: true }).lean();
@@ -82,6 +84,9 @@ export async function runLangchainAgent(input: {
 - Discord ID: ${input.authorId}
 If they ask about their profile, orders, or registration, you should look up their profile using "get_customer_by_discord_id" with their Discord ID. If they don't have a profile yet, you can create one for them using "create_customer" after asking or confirming their email.`;
   }
+  if (input.channelId) {
+    userContextPrompt += `\n- Current Channel/Thread ID: ${input.channelId}`;
+  }
 
   const systemPrompt = `You are Closiq's Discord support agent running on LangChain. Answer customers concisely, helpfully, and friendly. Use the supplied knowledgebase context to answer their questions accurately. If no context is provided or if the context is insufficient, answer to the best of your ability using your general knowledge while remaining helpful.
 
@@ -89,8 +94,22 @@ You also have direct access to tools to manage customer records and order status
 
   const messages: any[] = [
     new SystemMessage(systemPrompt),
-    new HumanMessage(`Customer message:\n${input.question}\n\nKnowledgebase context:\n${input.context}`),
   ];
+
+  if (input.history && input.history.length > 0) {
+    for (const h of input.history) {
+      if (h.direction === "inbound") {
+        messages.push(new HumanMessage(h.content));
+      } else {
+        messages.push(new AIMessage(h.content));
+      }
+    }
+  }
+
+  // Append current question
+  messages.push(
+    new HumanMessage(`Customer message:\n${input.question}\n\nKnowledgebase context:\n${input.context}`)
+  );
 
   // 6. Run the agentic ReAct loop
   let runCount = 0;

@@ -36,22 +36,22 @@ export const CommandModel =
 
 export async function seedCommands() {
   try {
-    const count = await CommandModel.countDocuments();
-    if (count > 0) {
-      return;
+    logger.info("Syncing Command Lookup Table with available agent tools...");
+    for (const cmd of Object.values(commandDefinitions)) {
+      await CommandModel.updateOne(
+        { name: cmd.name },
+        {
+          $setOnInsert: { enabled: true },
+          $set: {
+            description: cmd.description,
+            parameters: cmd.parameters,
+          },
+        },
+        { upsert: true }
+      );
     }
-
-    logger.info("Seeding Command Lookup Table with available agent tools...");
-    const seeds = Object.values(commandDefinitions).map((cmd) => ({
-      name: cmd.name,
-      description: cmd.description,
-      parameters: cmd.parameters,
-      enabled: true,
-    }));
-
-    await CommandModel.insertMany(seeds);
-    logger.info(`Successfully seeded ${seeds.length} commands into MongoDB.`);
+    logger.info("Successfully synced agent commands in MongoDB.");
   } catch (error) {
-    logger.error("Failed to seed Command Lookup Table", { error });
+    logger.error("Failed to sync Command Lookup Table", { error });
   }
 }
