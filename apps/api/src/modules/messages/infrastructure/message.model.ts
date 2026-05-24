@@ -93,6 +93,11 @@ const threadSchema = new Schema(
       default: "open",
       required: true,
     },
+    autoReply: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
   },
   {
     timestamps: true,

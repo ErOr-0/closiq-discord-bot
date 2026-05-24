@@ -10,6 +10,11 @@ type ShellProps = {
 
 const tabs: Array<{ id: AppTab; label: string; description: string }> = [
   {
+    id: "dashboard",
+    label: "Dashboard",
+    description: "System overview and analytics",
+  },
+  {
     id: "messages",
     label: "Messages",
     description: "Discord customer conversations",
@@ -23,6 +28,11 @@ const tabs: Array<{ id: AppTab; label: string; description: string }> = [
     id: "commands",
     label: "Agent Commands",
     description: "Manage active AI tools live",
+  },
+  {
+    id: "customers",
+    label: "Customers & Leads",
+    description: "View pipeline and orders",
   },
 ];
 

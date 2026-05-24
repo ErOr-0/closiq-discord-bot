@@ -122,15 +122,27 @@ export function MessagesPage() {
     setSuggestedAnswer(null);
 
     try {
-      const response = await apiPost<ApiEnvelope<ManualInboundResponse>>("/messages/inbound", {
-        channelId: activeChannel,
-        authorId,
-        authorName,
-        content: testMessage,
-        autoReply,
-      });
+      if (threadAutoReply === false) {
+        // Since we are delegated to human support, send this as an OUTBOUND human agent reply
+        await apiPost("/messages/outbound", {
+          channelId: activeChannel,
+          content: testMessage,
+          authorId: "human-agent",
+          authorName: "Human Support Agent",
+        });
+      } else {
+        // Customer simulation (Inbound)
+        const response = await apiPost<ApiEnvelope<ManualInboundResponse>>("/messages/inbound", {
+          channelId: activeChannel,
+          authorId,
+          authorName,
+          content: testMessage,
+          autoReply,
+        });
 
-      setSuggestedAnswer(response.data.suggestedAnswer);
+        setSuggestedAnswer(response.data.suggestedAnswer);
+      }
+
       setTestMessage("");
       await loadMessages();
     } catch (err) {
@@ -154,11 +166,88 @@ export function MessagesPage() {
     setError(null);
     try {
       await apiPatch("/messages/threads/resolve", { channelId: activeChannel });
+      setSelectedChannel("");
+      setSelectedContact("");
       await loadMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to resolve thread");
     } finally {
       setResolving(false);
+    }
+  }
+
+  // Active channel helper for fetching/updating thread-specific auto-reply settings
+  const activeChannelId = (() => {
+    if (selectedChannel) return selectedChannel;
+    if (selectedContact) {
+      const contactMsg = messages.find((m) => m.authorId === selectedContact);
+      return contactMsg?.channelId || "";
+    }
+    return "";
+  })();
+
+  type ThreadInfo = {
+    _id: string;
+    channelId: string;
+    authorId: string;
+    status: "open" | "resolved";
+    autoReply: boolean;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  const [channelThreads, setChannelThreads] = useState<ThreadInfo[]>([]);
+  const [threadAutoReply, setThreadAutoReply] = useState<boolean | null>(null);
+  const [togglingAutoReply, setTogglingAutoReply] = useState(false);
+
+  // Sync thread status and list of threads
+  useEffect(() => {
+    if (!activeChannelId) {
+      setChannelThreads([]);
+      setThreadAutoReply(null);
+      return;
+    }
+
+    let isMounted = true;
+    apiGet<{ data: ThreadInfo[] }>(`/messages/threads?channelId=${activeChannelId}`)
+      .then((res) => {
+        if (isMounted) {
+          setChannelThreads(res.data);
+          // Find the active open thread to configure the top toggle button
+          const activeThread = res.data.find((t) => t.status === "open");
+          if (activeThread) {
+            setThreadAutoReply(activeThread.autoReply);
+          } else {
+            setThreadAutoReply(null);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load threads:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeChannelId, messages]);
+
+  async function handleToggleThreadAutoReply() {
+    if (!activeChannelId || threadAutoReply === null) return;
+
+    setTogglingAutoReply(true);
+    setError(null);
+    try {
+      const newSetting = !threadAutoReply;
+      const response = await apiPatch<{ data: { autoReply: boolean } }>("/messages/threads/auto-reply", {
+        channelId: activeChannelId,
+        autoReply: newSetting,
+      });
+      setThreadAutoReply(response.data.autoReply);
+      await loadMessages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to toggle AI Auto-Reply setting");
+    } finally {
+      setTogglingAutoReply(false);
     }
   }
 
@@ -209,6 +298,29 @@ export function MessagesPage() {
       return false;
     })
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  interface ThreadGroup {
+    threadId: string;
+    messages: CustomerMessage[];
+    firstMessageCreatedAt: string;
+  }
+
+  const threadGroups: ThreadGroup[] = [];
+  const threadMap = new Map<string, ThreadGroup>();
+
+  activeChatMessages.forEach((msg) => {
+    const threadId = msg.threadId || "legacy-thread";
+    if (!threadMap.has(threadId)) {
+      const newGroup: ThreadGroup = {
+        threadId,
+        messages: [],
+        firstMessageCreatedAt: msg.createdAt,
+      };
+      threadGroups.push(newGroup);
+      threadMap.set(threadId, newGroup);
+    }
+    threadMap.get(threadId)!.messages.push(msg);
+  });
 
   // Check if current thread has messages and what the status of the thread is
   const isCurrentConversationResolved = (() => {
@@ -323,7 +435,29 @@ export function MessagesPage() {
                     {selectedChannel ? `Simulated Discord support ticket channel` : `Customer Direct Conversation`}
                   </p>
                 </div>
-                <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {threadAutoReply !== null && (
+                    <button
+                      className="button secondary small"
+                      type="button"
+                      onClick={handleToggleThreadAutoReply}
+                      disabled={togglingAutoReply}
+                      style={{
+                        background: threadAutoReply ? "#edfcf2" : "#fffbeb",
+                        color: threadAutoReply ? "#15803d" : "#b45309",
+                        border: threadAutoReply ? "1px solid #bbf7d0" : "1px solid #fef3c7",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        padding: "8px 12px",
+                      }}
+                    >
+                      {togglingAutoReply
+                        ? "Saving..."
+                        : threadAutoReply
+                        ? "🤖 AI Auto-Reply: ON (Click to Delegate to Human)"
+                        : "🙋‍♂️ Delegated to Human Support (Click to Enable AI)"}
+                    </button>
+                  )}
                   <button
                     className="button secondary small"
                     type="button"
@@ -335,6 +469,7 @@ export function MessagesPage() {
                       border: "1px solid #fee2e2",
                       borderRadius: 8,
                       fontWeight: 600,
+                      padding: "8px 12px",
                     }}
                   >
                     {resolving ? "Resolving..." : "Resolve Thread"}
@@ -352,28 +487,90 @@ export function MessagesPage() {
                     <p className="muted" style={{ fontSize: "0.8rem" }}>Simulate the first customer message using the input bar below!</p>
                   </div>
                 ) : (
-                  activeChatMessages.map((message) => {
-                    const isInbound = message.direction === "inbound";
+                  threadGroups.map((group) => {
+                    const threadInfo = channelThreads.find((t) => t._id === group.threadId);
+                    const status = threadInfo?.status || "resolved";
+                    const isAutoReply = threadInfo ? threadInfo.autoReply : true;
+
                     return (
-                      <div key={message.id} className={`chat-bubble-wrapper ${message.direction}`}>
-                        <div className="chat-bubble">
-                          <div className="chat-bubble-author" style={{ fontSize: "0.78rem", marginBottom: 3 }}>
-                            {message.authorName}
-                          </div>
-                          <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: "1.4" }}>{message.content}</p>
-                          <div className="chat-bubble-meta">
-                            <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span>•</span>
-                            <span style={{ textTransform: "capitalize" }}>
-                              {message.aiGenerated ? "AI Agent" : message.status}
+                      <div
+                        key={group.threadId}
+                        style={{
+                          background: status === "open" ? "#ffffff" : "#f8fafc",
+                          border: status === "open" ? "2px solid #3b82f6" : "1px solid #e2e8f0",
+                          borderRadius: 12,
+                          padding: 16,
+                          marginBottom: 20,
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                        }}
+                      >
+                        {/* Thread Card Header */}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderBottom: "1px solid #e2e8f0",
+                            paddingBottom: 8,
+                            marginBottom: 12,
+                            fontSize: "0.8rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <span style={{ color: "#64748b" }}>
+                            🎟️ Thread ID: <code style={{ fontSize: "0.85rem", background: "#f1f5f9", padding: "2px 4px", borderRadius: 4 }}>{group.threadId.slice(-6)}</code>
+                          </span>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <span
+                              style={{
+                                background: status === "open" ? "#dbeafe" : "#f1f5f9",
+                                color: status === "open" ? "#1e40af" : "#475569",
+                                padding: "3px 8px",
+                                borderRadius: 12,
+                                fontSize: "0.7rem",
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              {status === "open" ? "🟢 Active / Open" : "🔴 Resolved / Closed"}
                             </span>
-                            {message.threadId && (
-                              <>
-                                <span>•</span>
-                                <span title={`Thread ID: ${message.threadId}`}>Thread: {message.threadId.slice(-4)}</span>
-                              </>
+                            {status === "open" && (
+                              <span
+                                style={{
+                                  background: isAutoReply ? "#dcfce7" : "#fef3c7",
+                                  color: isAutoReply ? "#166534" : "#92400e",
+                                  padding: "3px 8px",
+                                  borderRadius: 12,
+                                  fontSize: "0.7rem",
+                                }}
+                              >
+                                {isAutoReply ? "🤖 AI Auto-Reply" : "🙋‍♂️ Human Support"}
+                              </span>
                             )}
                           </div>
+                        </div>
+
+                        {/* Thread Card Messages */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          {group.messages.map((message) => {
+                            const isInbound = message.direction === "inbound";
+                            return (
+                              <div key={message.id} className={`chat-bubble-wrapper ${message.direction}`}>
+                                <div className="chat-bubble">
+                                  <div className="chat-bubble-author" style={{ fontSize: "0.78rem", marginBottom: 3 }}>
+                                    {message.authorName}
+                                  </div>
+                                  <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: "1.4" }}>{message.content}</p>
+                                  <div className="chat-bubble-meta">
+                                    <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <span>•</span>
+                                    <span style={{ textTransform: "capitalize" }}>
+                                      {message.aiGenerated ? "AI Agent" : message.status}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -388,19 +585,29 @@ export function MessagesPage() {
                   <input
                     className="chat-input-text"
                     type="text"
-                    placeholder={`Message as ${selectedContact ? "customer" : "customer in " + currentChatLabel}...`}
+                    placeholder={
+                      threadAutoReply === false
+                        ? "Reply to customer as Support Agent..."
+                        : `Message as ${selectedContact ? "customer" : "customer in " + currentChatLabel}...`
+                    }
                     value={testMessage}
                     onChange={(e) => setTestMessage(e.target.value)}
                     disabled={submitting}
                   />
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "#475569", whiteSpace: "nowrap" }}>
-                    <input
-                      type="checkbox"
-                      checked={autoReply}
-                      onChange={(e) => setAutoReply(e.target.checked)}
-                    />
-                    AI Auto-Reply
-                  </label>
+                  {threadAutoReply === false ? (
+                    <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                      🙋‍♂️ Human Active
+                    </span>
+                  ) : (
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "#475569", whiteSpace: "nowrap" }}>
+                      <input
+                        type="checkbox"
+                        checked={autoReply}
+                        onChange={(e) => setAutoReply(e.target.checked)}
+                      />
+                      AI Auto-Reply
+                    </label>
+                  )}
                   <button className="button" type="submit" disabled={submitting || !testMessage.trim()} style={{ borderRadius: 20, padding: "10px 20px" }}>
                     {submitting ? "..." : "Send"}
                   </button>

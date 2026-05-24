@@ -7,6 +7,8 @@ import { agentRouter } from "./modules/agent/presentation/agent.routes";
 import { healthRouter } from "./modules/health/presentation/health.routes";
 import { knowledgebaseRouter } from "./modules/knowledgebase/presentation/knowledgebase.routes";
 import { messagesRouter } from "./modules/messages/presentation/messages.routes";
+import { customersRouter } from "./modules/customers/presentation/customers.routes";
+import { dashboardRouter } from "./modules/dashboard/presentation/dashboard.routes";
 import { errorHandler, notFoundHandler } from "./shared/middleware/errorHandler";
 import { requestLogger } from "./shared/middleware/requestLogger";
 
@@ -35,6 +37,8 @@ app.use("/api/health", healthRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/knowledgebase", knowledgebaseRouter);
 app.use("/api/agent", agentRouter);
+app.use("/api/customers", customersRouter);
+app.use("/api/dashboard", dashboardRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -4,6 +4,30 @@ import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { answerCustomerMessage } from "../../modules/agent/application/answerCustomerMessage.usecase";
 import { markMessageAnswered, recordMessage } from "../../modules/messages/application/recordMessage.usecase";
+import { ThreadModel } from "../../modules/messages/infrastructure/message.model";
+
+let activeClient: Client | null = null;
+
+export async function sendDiscordMessage(channelId: string, content: string): Promise<any> {
+  if (!activeClient) {
+    logger.warn("Cannot send Discord message: client is not initialized or gateway is disabled");
+    return null;
+  }
+
+  try {
+    const channel = await activeClient.channels.fetch(channelId);
+    if (!channel || !("send" in channel)) {
+      logger.error(`Channel with ID ${channelId} not found or is not a text channel`);
+      return null;
+    }
+
+    const sentMessage = await (channel as any).send(content);
+    return sentMessage;
+  } catch (error) {
+    logger.error("Failed to send message to Discord", { channelId, error });
+    throw error;
+  }
+}
 
 export async function startDiscordGateway() {
   if (!env.DISCORD_BOT_TOKEN) {
@@ -42,6 +66,8 @@ export async function startDiscordGateway() {
 
   await client.login(env.DISCORD_BOT_TOKEN);
 
+  activeClient = client;
+
   return client;
 }
 
@@ -73,6 +99,12 @@ async function handleMessage(message: Message) {
     direction: "inbound",
     status: "received",
   });
+
+  const thread = await ThreadModel.findOne({ channelId: message.channelId, status: "open" });
+  if (thread && thread.autoReply === false) {
+    logger.info(`AI Auto-Reply is disabled (delegated to human support) for channel/thread ${message.channelId}`);
+    return;
+  }
 
   if (!env.AUTO_REPLY_ENABLED) {
     return;

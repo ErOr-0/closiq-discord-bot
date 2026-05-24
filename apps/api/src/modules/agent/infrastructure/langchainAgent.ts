@@ -50,6 +50,7 @@ export async function runLangchainAgent(input: {
 
   if (env.OPENROUTER_API_KEY) {
     model = new ChatOpenAI({
+      apiKey: env.OPENROUTER_API_KEY,
       openAIApiKey: env.OPENROUTER_API_KEY,
       modelName: env.OPENROUTER_MODEL,
       temperature: 0.2,
@@ -63,6 +64,7 @@ export async function runLangchainAgent(input: {
     });
   } else if (env.OPENAI_API_KEY) {
     model = new ChatOpenAI({
+      apiKey: env.OPENAI_API_KEY,
       openAIApiKey: env.OPENAI_API_KEY,
       modelName: env.OPENAI_MODEL,
       temperature: 0.2,

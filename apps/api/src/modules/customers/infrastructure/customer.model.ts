@@ -24,6 +24,12 @@ const customerSchema = new Schema(
       type: String,
       trim: true,
     },
+    leadStatus: {
+      type: String,
+      enum: ["new", "contacted", "qualified", "unqualified", "converted"],
+      default: "new",
+      required: true,
+    },
   },
   {
     timestamps: true,
