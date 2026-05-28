@@ -3,10 +3,10 @@ import type { Server } from "node:http";
 import { app } from "./app";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
-import { connectMongo, disconnectMongo } from "./infrastructure/database/mongodb";
-import { startDiscordGateway } from "./infrastructure/discord/discordGateway";
-import { ensureMinioBucket } from "./infrastructure/storage/minio";
-import { ensureQdrantCollection } from "./infrastructure/vector/qdrant";
+import { connectMongo, disconnectMongo } from "./integrations/database/mongodb";
+import { startDiscordGateway } from "./integrations/discord/discordGateway";
+import { ensureMinioBucket } from "./integrations/storage/minio";
+import { ensureQdrantCollection } from "./integrations/vector/qdrant";
 
 let httpServer: Server | null = null;
 let discordClient: { destroy: () => void } | null = null;

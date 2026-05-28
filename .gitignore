@@ -4,6 +4,9 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+.idea/
+.ai/
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

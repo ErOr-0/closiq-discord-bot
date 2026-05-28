@@ -3,10 +3,10 @@ import express from "express";
 import helmet from "helmet";
 
 import { env } from "./config/env";
-import { agentRouter } from "./modules/agent/presentation/agent.routes";
-import { healthRouter } from "./modules/health/presentation/health.routes";
-import { knowledgebaseRouter } from "./modules/knowledgebase/presentation/knowledgebase.routes";
-import { messagesRouter } from "./modules/messages/presentation/messages.routes";
+import { agentRouter } from "./modules/agent/routes/agent.routes";
+import { healthRouter } from "./modules/health/routes/health.routes";
+import { knowledgebaseRouter } from "./modules/knowledgebase/routes/knowledgebase.routes";
+import { messagesRouter } from "./modules/messages/routes/messages.routes";
 import { errorHandler, notFoundHandler } from "./shared/middleware/errorHandler";
 import { requestLogger } from "./shared/middleware/requestLogger";
 

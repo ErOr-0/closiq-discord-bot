@@ -10,15 +10,26 @@
 2. The message is saved through the `messages` module into MongoDB.
 3. The `agent` module receives the message text and asks the `knowledgebase` module for relevant context.
 4. The `knowledgebase` module creates an embedding and searches Qdrant.
-5. The `agent` module sends the customer message plus retrieved context to the AI provider.
+5. The `agent` module sends the customer message plus retrieved context to the LangChain runtime.
 6. If auto-reply is enabled, the Discord adapter replies to the customer and records the outbound message in MongoDB.
 7. The React dashboard reads messages and knowledge documents through the Express API.
 
-## Backend dependency direction
+## Backend Dependency Direction
 
-Presentation routes depend on application use cases. Application use cases depend on domain types and infrastructure adapters. Domain files do not import from infrastructure or presentation.
+Routes depend on controllers. Controllers depend on services. Services depend on module types, other modules' services, models, and app-wide integrations.
 
 This keeps business logic testable and prevents external concerns like Discord, Qdrant, or MongoDB from leaking into the UI-facing route layer.
+
+Each backend feature module follows the same internal folder convention:
+
+- `routes` contains Express path and middleware wiring.
+- `controllers` contains request validation and HTTP response handling.
+- `services` contains executable business workflows.
+- `models` contains Mongoose schemas and persistence models.
+- `types` contains TypeScript shapes, enums, and DTO-like contracts.
+- `mappers` contains persistence-to-API mapping helpers.
+- `middlewares` contains module-specific Express middleware.
+- `integrations` contains app-wide external service clients. `utils` is reserved for small pure helpers.
 
 ## Modules
 
@@ -32,15 +43,21 @@ Responsible for storing knowledge documents in MongoDB and syncing embeddings in
 
 ### Agent
 
-Responsible for answer orchestration. It gathers knowledgebase matches and asks the AI provider to produce a concise customer response.
+Responsible for answer orchestration. It gathers knowledgebase matches, loads conversation history from the messages module, and asks the LangChain runtime to produce a concise customer response.
 
-### Infrastructure
+Agent-specific runtime code is split by responsibility:
 
-Contains adapters for systems outside the application boundary:
+- `services/langchainAgent.service.ts` - LangChain chat model setup and tool-calling loop
+- `tools/commandRegistry.ts` - executable tool registry
+- `models` - command lookup table persistence model
+
+### Integrations
+
+Contains clients for systems outside the application boundary:
 
 - MongoDB connection
 - Qdrant client
-- OpenAI provider
+- OpenAI embedding provider
 - Discord gateway
 
 ## Frontend
