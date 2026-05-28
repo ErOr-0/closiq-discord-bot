@@ -54,6 +54,7 @@ const envSchema = z.object({
   OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
 
   OPENROUTER_API_KEY: optionalString,
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
   OPENROUTER_MODEL: z.string().default("google/gemma-4-26b-a4b-it"),
   OPENROUTER_FALLBACK_MODEL: optionalString,
   ENFORCE_CREDIT: booleanFromEnv.default(false),
