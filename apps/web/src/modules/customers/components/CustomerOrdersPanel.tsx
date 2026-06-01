@@ -1,5 +1,6 @@
 import { EmptyState } from "../../../shared/components/EmptyState";
 import type { Customer, CustomerOrder } from "../types";
+import { CustomerOrdersLoader } from "./CustomerOrdersLoader";
 
 type CustomerOrdersPanelProps = {
   customer: Customer | null;
@@ -26,7 +27,7 @@ export function CustomerOrdersPanel({
   }
 
   if (loading) {
-    return <p className="muted">Loading orders...</p>;
+    return <CustomerOrdersLoader />;
   }
 
   if (!orders.length) {

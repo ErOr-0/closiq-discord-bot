@@ -7,6 +7,7 @@ import {
 } from "../api/customersApi";
 import { completeCustomerOrder, fetchCustomerOrders } from "../api/ordersApi";
 import { CustomerForm } from "../components/CustomerForm";
+import { CustomerDashboardLoader } from "../components/CustomerDashboardLoader";
 import { CustomerOverview } from "../components/CustomerOverview";
 import { CustomerOrdersPanel } from "../components/CustomerOrdersPanel";
 import { CustomerProfilePanel } from "../components/CustomerProfilePanel";
@@ -80,6 +81,19 @@ export function CustomersPage() {
     void loadSelectedCustomerOrders(selectedCustomerId);
   }, [loadSelectedCustomerOrders, selectedCustomerId]);
 
+  async function handleRefreshCustomers() {
+    setLoading(true);
+    setSuccess(null);
+
+    try {
+      await loadCustomers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to refresh customers");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSubmitCustomer(input: CustomerInput) {
     setSubmitting(true);
     setError(null);
@@ -120,6 +134,8 @@ export function CustomersPage() {
     }
   }
 
+  const isInitialDashboardLoading = loading && customers.length === 0;
+
   return (
     <section className="content-stack">
       <header className="page-header">
@@ -127,67 +143,78 @@ export function CustomersPage() {
           <h1>Customers</h1>
           <p>Manage customer records and order value from one workspace.</p>
         </div>
-        <button className="button secondary" type="button" onClick={() => void loadCustomers()}>
-          Refresh
+        <button
+          className="button secondary"
+          disabled={loading}
+          type="button"
+          onClick={() => void handleRefreshCustomers()}
+        >
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </header>
 
-      <CustomerOverview customers={customers} />
+      {isInitialDashboardLoading ? (
+        <CustomerDashboardLoader />
+      ) : (
+        <>
+          <CustomerOverview customers={customers} />
 
-      {error ? <div className="error">{error}</div> : null}
-      {success ? <div className="success">{success}</div> : null}
+          {error ? <div className="error">{error}</div> : null}
+          {success ? <div className="success">{success}</div> : null}
 
-      <div className="customer-manager">
-        <div className="manager-panel customer-form-panel">
-          <div className="panel-heading">
-            <h2>{editingCustomer ? "Edit customer" : "Add customer"}</h2>
-            {editingCustomer ? <span className="badge">Editing</span> : null}
+          <div className="customer-manager">
+            <div className="manager-panel customer-form-panel">
+              <div className="panel-heading">
+                <h2>{editingCustomer ? "Edit customer" : "Add customer"}</h2>
+                {editingCustomer ? <span className="badge">Editing</span> : null}
+              </div>
+              <CustomerForm
+                customer={editingCustomer}
+                submitting={submitting}
+                onCancelEdit={() => setEditingCustomer(null)}
+                onSubmit={handleSubmitCustomer}
+              />
+            </div>
+
+            <div className="manager-panel customer-orders-panel">
+              <div className="panel-heading">
+                <h2>Orders</h2>
+                {selectedCustomer ? (
+                  <span className="badge">{selectedCustomerOrders.length} orders</span>
+                ) : null}
+              </div>
+
+              <label className="field">
+                <span>Customer</span>
+                <select
+                  className="search-input"
+                  disabled={loading || customers.length === 0}
+                  value={selectedCustomerId ?? ""}
+                  onChange={(event) => setSelectedCustomerId(event.target.value || undefined)}
+                >
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} · {customer.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <CustomerOrdersPanel
+                customer={selectedCustomer}
+                completingOrderId={completingOrderId}
+                loading={ordersLoading}
+                orders={selectedCustomerOrders}
+                onCompleteOrder={handleCompleteOrder}
+              />
+            </div>
+
+            <div className="manager-panel customer-profile-panel">
+              <CustomerProfilePanel customer={selectedCustomer} onEdit={setEditingCustomer} />
+            </div>
           </div>
-          <CustomerForm
-            customer={editingCustomer}
-            submitting={submitting}
-            onCancelEdit={() => setEditingCustomer(null)}
-            onSubmit={handleSubmitCustomer}
-          />
-        </div>
-
-        <div className="manager-panel customer-orders-panel">
-          <div className="panel-heading">
-            <h2>Orders</h2>
-            {selectedCustomer ? (
-              <span className="badge">{selectedCustomerOrders.length} orders</span>
-            ) : null}
-          </div>
-
-          <label className="field">
-            <span>Customer</span>
-            <select
-              className="search-input"
-              disabled={loading || customers.length === 0}
-              value={selectedCustomerId ?? ""}
-              onChange={(event) => setSelectedCustomerId(event.target.value || undefined)}
-            >
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name} · {customer.email}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <CustomerOrdersPanel
-            customer={selectedCustomer}
-            completingOrderId={completingOrderId}
-            loading={ordersLoading}
-            orders={selectedCustomerOrders}
-            onCompleteOrder={handleCompleteOrder}
-          />
-        </div>
-
-        <div className="manager-panel customer-profile-panel">
-          <CustomerProfilePanel customer={selectedCustomer} onEdit={setEditingCustomer} />
-        </div>
-      </div>
+        </>
+      )}
     </section>
   );
 }
