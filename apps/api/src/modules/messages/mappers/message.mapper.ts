@@ -1,4 +1,10 @@
-import type { CustomerMessage, MessageDirection, MessageStatus } from "../types/message";
+import type {
+  CustomerMessage,
+  MessageDirection,
+  MessageStatus,
+  SessionStatus,
+  ThreadStatus,
+} from "../types/message";
 
 export type MessageLike = {
   _id: unknown;
@@ -13,7 +19,9 @@ export type MessageLike = {
   responseToMessageId?: string | null;
   aiGenerated?: boolean;
   threadId?: string | null;
+  threadStatus?: ThreadStatus;
   sessionId?: string | null;
+  sessionStatus?: SessionStatus;
   createdAt?: Date | string;
   updatedAt?: Date | string;
 };
@@ -32,7 +40,9 @@ export function toCustomerMessage(record: MessageLike): CustomerMessage {
     responseToMessageId: record.responseToMessageId ?? undefined,
     aiGenerated: Boolean(record.aiGenerated),
     threadId: record.threadId ?? undefined,
+    threadStatus: record.threadStatus,
     sessionId: record.sessionId ?? undefined,
+    sessionStatus: record.sessionStatus,
     createdAt: toIsoString(record.createdAt),
     updatedAt: toIsoString(record.updatedAt),
   };

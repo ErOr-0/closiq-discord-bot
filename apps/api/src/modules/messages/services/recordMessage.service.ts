@@ -1,5 +1,5 @@
 import { MessageModel, ThreadModel, SessionModel } from "../models/message.model";
-import type { MessageDirection, MessageStatus } from "../types/message";
+import { SessionStatus, ThreadStatus, type MessageDirection, type MessageStatus } from "../types/message";
 import { type MessageLike, toCustomerMessage } from "../mappers/message.mapper";
 
 export type RecordMessageInput = {
@@ -25,24 +25,24 @@ export async function recordMessage(input: RecordMessageInput) {
   }
 
   // Find or create open thread for this channel
-  let thread = await ThreadModel.findOne({ channelId: input.channelId, status: "open" });
+  let thread = await ThreadModel.findOne({ channelId: input.channelId, status: ThreadStatus.Open });
   if (!thread) {
     thread = await ThreadModel.create({
       channelId: input.channelId,
       authorId: input.direction === "inbound" ? input.authorId : "unknown-customer",
-      status: "open",
+      status: ThreadStatus.Open,
     });
   }
   const threadId = String(thread._id);
 
   // Find or create active session under this thread
-  let session = await SessionModel.findOne({ threadId, status: "active" }).sort({ updatedAt: -1 });
+  let session = await SessionModel.findOne({ threadId, status: SessionStatus.Active }).sort({ updatedAt: -1 });
   if (session) {
     // If session is active, check if it timed out (30 mins of inactivity)
     const timeoutMs = 30 * 60 * 1000;
     const lastActive = new Date(session.updatedAt || session.createdAt).getTime();
     if (Date.now() - lastActive > timeoutMs) {
-      await SessionModel.findByIdAndUpdate(session._id, { status: "completed" });
+      await SessionModel.findByIdAndUpdate(session._id, { status: SessionStatus.Completed });
       session = null;
     }
   }
@@ -50,7 +50,7 @@ export async function recordMessage(input: RecordMessageInput) {
   if (!session) {
     session = await SessionModel.create({
       threadId,
-      status: "active",
+      status: SessionStatus.Active,
     });
   } else {
     // Refresh session activity timestamp

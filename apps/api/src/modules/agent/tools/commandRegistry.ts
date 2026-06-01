@@ -375,13 +375,16 @@ export const commandDefinitions: Record<string, CommandDefinition> = {
     }),
     execute: async ({ channelId }) => {
       try {
-        const thread = await resolveThread({ channelId });
+        const result = await resolveThread({ channelId });
 
-        if (!thread) {
-          return { success: false, message: `No active open thread found in channel: ${channelId}` };
+        if (result.alreadyResolved) {
+          return { success: true, message: `No active open thread found in channel ${channelId}; treating it as resolved.` };
         }
 
-        return { success: true, message: `Successfully resolved active support thread for channel ${channelId}` };
+        return {
+          success: true,
+          message: `Successfully resolved ${result.resolvedThreadCount} support thread(s) for channel ${channelId}`,
+        };
       } catch (error) {
         logger.error("Error in resolve_current_thread command", { error });
         return { success: false, error: error instanceof Error ? error.message : String(error) };

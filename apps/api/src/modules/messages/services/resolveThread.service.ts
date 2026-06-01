@@ -1,22 +1,72 @@
 import { SessionModel, ThreadModel } from "../models/message.model";
+import { SessionStatus, ThreadStatus } from "../types/message";
 
-export async function resolveThread(input: { channelId: string }) {
-  const thread = await ThreadModel.findOneAndUpdate(
-    { channelId: input.channelId, status: "open" },
-    { status: "resolved" },
-    { new: true }
-  ).lean();
+export type ResolveThreadInput = {
+  channelId?: string;
+  threadIds?: string[];
+};
 
-  if (!thread) {
-    return null;
+export async function resolveThread(input: ResolveThreadInput) {
+  const uniqueThreadIds = Array.from(new Set(input.threadIds ?? [])).filter(Boolean);
+  const threadLookupConditions = [
+    ...(uniqueThreadIds.length > 0 ? [{ _id: { $in: uniqueThreadIds } }] : []),
+    ...(input.channelId ? [{ channelId: input.channelId }] : []),
+  ];
+
+  if (threadLookupConditions.length === 0) {
+    return {
+      channelId: input.channelId,
+      channelIds: [],
+      threadStatus: ThreadStatus.Resolved,
+      resolvedThreadCount: 0,
+      completedSessionCount: 0,
+      alreadyResolved: true,
+    };
   }
 
-  const threadId = String((thread as { _id: unknown })._id);
-
-  await SessionModel.updateMany(
-    { threadId, status: "active" },
-    { status: "completed" }
+  const openThreads = await ThreadModel.find({
+    $or: threadLookupConditions,
+    status: ThreadStatus.Open,
+  })
+    .select("_id channelId")
+    .lean();
+  const channelIds = Array.from(
+    new Set([
+      ...openThreads.map((thread) => thread.channelId),
+      ...(input.channelId ? [input.channelId] : []),
+    ])
   );
 
-  return thread;
+  if (openThreads.length === 0) {
+    return {
+      channelId: input.channelId,
+      channelIds,
+      threadStatus: ThreadStatus.Resolved,
+      resolvedThreadCount: 0,
+      completedSessionCount: 0,
+      alreadyResolved: true,
+    };
+  }
+
+  const threadIds = openThreads.map((thread) => String(thread._id));
+
+  const [threadUpdate, sessionUpdate] = await Promise.all([
+    ThreadModel.updateMany(
+      { _id: { $in: threadIds }, status: ThreadStatus.Open },
+      { status: ThreadStatus.Resolved }
+    ),
+    SessionModel.updateMany(
+      { threadId: { $in: threadIds }, status: SessionStatus.Active },
+      { status: SessionStatus.Completed }
+    ),
+  ]);
+
+  return {
+    channelId: input.channelId,
+    channelIds,
+    threadStatus: ThreadStatus.Resolved,
+    resolvedThreadCount: threadUpdate.modifiedCount,
+    completedSessionCount: sessionUpdate.modifiedCount,
+    alreadyResolved: false,
+  };
 }

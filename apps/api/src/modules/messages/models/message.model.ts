@@ -1,6 +1,13 @@
 import { Schema, model, models, type HydratedDocument, type InferSchemaType } from "mongoose";
 
-import { messageDirections, messageStatuses } from "../types/message";
+import {
+  messageDirections,
+  messageStatuses,
+  SessionStatus,
+  sessionStatuses,
+  ThreadStatus,
+  threadStatuses,
+} from "../types/message";
 
 const messageSchema = new Schema(
   {
@@ -89,8 +96,8 @@ const threadSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["open", "resolved"],
-      default: "open",
+      enum: threadStatuses,
+      default: ThreadStatus.Open,
       required: true,
     },
   },
@@ -117,8 +124,8 @@ const sessionSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["active", "completed"],
-      default: "active",
+      enum: sessionStatuses,
+      default: SessionStatus.Active,
       required: true,
     },
   },

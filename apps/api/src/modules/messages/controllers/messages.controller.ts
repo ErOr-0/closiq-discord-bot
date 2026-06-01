@@ -23,7 +23,10 @@ const manualInboundSchema = z.object({
 });
 
 const resolveThreadSchema = z.object({
-  channelId: z.string().min(1),
+  channelId: z.string().min(1).optional(),
+  threadIds: z.array(z.string().min(1)).optional(),
+}).refine((payload) => payload.channelId || (payload.threadIds && payload.threadIds.length > 0), {
+  message: "channelId or threadIds is required",
 });
 
 export async function listMessages(req: Request, res: Response) {
@@ -34,20 +37,10 @@ export async function listMessages(req: Request, res: Response) {
 }
 
 export async function resolveOpenThread(req: Request, res: Response) {
-  const { channelId } = resolveThreadSchema.parse(req.body);
-  const thread = await resolveThread({ channelId });
+  const payload = resolveThreadSchema.parse(req.body);
+  const data = await resolveThread(payload);
 
-  if (!thread) {
-    res.status(404).json({
-      error: {
-        message: "No active open thread found for this channel.",
-        statusCode: 404,
-      },
-    });
-    return;
-  }
-
-  res.json({ data: thread });
+  res.json({ data });
 }
 
 export async function createManualInboundMessage(req: Request, res: Response) {

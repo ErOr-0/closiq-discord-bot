@@ -1,4 +1,5 @@
 import { MessageModel, ThreadModel } from "../models/message.model";
+import { ThreadStatus } from "../types/message";
 
 export type ThreadHistoryMessage = {
   content: string;
@@ -10,7 +11,7 @@ export async function listThreadHistory(input: {
   limit?: number;
 }): Promise<ThreadHistoryMessage[]> {
   const limit = Math.min(Math.max(input.limit ?? 40, 1), 100);
-  const activeThread = await ThreadModel.findOne({ channelId: input.channelId, status: "open" });
+  const activeThread = await ThreadModel.findOne({ channelId: input.channelId, status: ThreadStatus.Open });
 
   if (!activeThread) {
     return [];

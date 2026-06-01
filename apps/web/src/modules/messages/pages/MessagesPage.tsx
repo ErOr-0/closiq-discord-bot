@@ -1,13 +1,22 @@
 import { FormEvent, useCallback, useEffect, useState, useRef } from "react";
 
 import { type ApiEnvelope, apiGet, apiPost, apiPatch } from "../../../shared/api/http";
-import { MessageList, type CustomerMessage } from "../components/MessageList";
+import { SessionStatus, ThreadStatus, type CustomerMessage } from "../components/MessageList";
 
 type ManualInboundResponse = {
   inbound: CustomerMessage;
   outbound: CustomerMessage | null;
   suggestedAnswer: string;
   citations: Array<{ id: string; title: string; source?: string; score?: number }>;
+};
+
+type ResolveThreadResponse = {
+  channelId?: string;
+  channelIds: string[];
+  threadStatus: ThreadStatus;
+  resolvedThreadCount: number;
+  completedSessionCount: number;
+  alreadyResolved: boolean;
 };
 
 type Contact = {
@@ -19,6 +28,8 @@ type ChannelInfo = {
   id: string;
   name: string;
 };
+
+type ConversationThreadStatus = ThreadStatus;
 
 export function MessagesPage() {
   const [messages, setMessages] = useState<CustomerMessage[]>([]);
@@ -100,6 +111,11 @@ export function MessagesPage() {
       return;
     }
 
+    if (isCurrentConversationResolved) {
+      setError("Resolved conversations are read-only.");
+      return;
+    }
+
     // Determine the channel to send to:
     // If a channel is active, use it. If a contact is active, use their channel. Otherwise, default.
     let activeChannel = selectedChannel;
@@ -143,23 +159,68 @@ export function MessagesPage() {
   // Handle Thread Resolution
   async function handleResolveThread() {
     let activeChannel = selectedChannel;
+    const openThreadIds = Array.from(
+      new Set(
+        activeChatMessages
+          .filter((message) => message.threadStatus === ThreadStatus.Open && message.threadId)
+          .map((message) => message.threadId as string)
+      )
+    );
+
     if (selectedContact) {
       const contactMsg = messages.find((m) => m.authorId === selectedContact);
       activeChannel = contactMsg?.channelId || "";
     }
 
-    if (!activeChannel) return;
+    if (!activeChannel && openThreadIds.length === 0) return;
 
     setResolving(true);
     setError(null);
     try {
-      await apiPatch("/messages/threads/resolve", { channelId: activeChannel });
+      const response = await apiPatch<ApiEnvelope<ResolveThreadResponse>>("/messages/threads/resolve", {
+        channelId: activeChannel || undefined,
+        threadIds: openThreadIds.length > 0 ? openThreadIds : undefined,
+      });
+      setSuggestedAnswer(null);
+      markResolvedConversation(response.data, activeChannel, openThreadIds);
       await loadMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to resolve thread");
     } finally {
       setResolving(false);
     }
+  }
+
+  function markResolvedConversation(
+    result: ResolveThreadResponse,
+    activeChannel: string,
+    openThreadIds: string[]
+  ) {
+    const resolvedChannelIds = new Set([
+      ...result.channelIds,
+      ...(result.channelId ? [result.channelId] : []),
+      ...(activeChannel ? [activeChannel] : []),
+    ]);
+    const resolvedThreadIds = new Set(openThreadIds);
+
+    setMessages((currentMessages) =>
+      currentMessages.map((message) => {
+        const matchesResolvedThread =
+          message.threadId && resolvedThreadIds.has(message.threadId);
+        const matchesResolvedChannel =
+          resolvedThreadIds.size === 0 && resolvedChannelIds.has(message.channelId);
+
+        if (!matchesResolvedThread && !matchesResolvedChannel) {
+          return message;
+        }
+
+        return {
+          ...message,
+          threadStatus: ThreadStatus.Resolved,
+          sessionStatus: SessionStatus.Completed,
+        };
+      })
+    );
   }
 
   // Handle adding/testing a completely new channel conversation
@@ -210,12 +271,8 @@ export function MessagesPage() {
     })
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  // Check if current thread has messages and what the status of the thread is
-  const isCurrentConversationResolved = (() => {
-    // Check if the latest message has threadId, then we can search our array or default to open
-    // Since we resolve via channelId, let's look for any open thread for this channel
-    return false; // UI will let you click resolve thread anytime
-  })();
+  const currentConversationStatus = getConversationThreadStatus(activeChatMessages);
+  const isCurrentConversationResolved = currentConversationStatus === ThreadStatus.Resolved;
 
   const currentChatLabel = selectedChannel
     ? `#${availableChannels.find((c) => c.id === selectedChannel)?.name || selectedChannel}`
@@ -261,7 +318,9 @@ export function MessagesPage() {
             ) : (
               availableChannels.map((chan) => {
                 const isActive = selectedChannel === chan.id;
-                const lastMsg = messages.filter((m) => m.channelId === chan.id).slice(-1)[0];
+                const channelMessages = messages.filter((m) => m.channelId === chan.id);
+                const lastMsg = channelMessages[0];
+                const threadStatus = getConversationThreadStatus(channelMessages);
                 return (
                   <div
                     key={chan.id}
@@ -273,7 +332,10 @@ export function MessagesPage() {
                   >
                     <div className="chat-item-avatar">#</div>
                     <div className="chat-item-info">
-                      <div className="chat-item-name">#{chan.name}</div>
+                      <div className="chat-item-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>#{chan.name}</span>
+                        {threadStatus ? <ThreadStatusBadge status={threadStatus} /> : null}
+                      </div>
                       <div className="chat-item-subtitle">{lastMsg ? lastMsg.content : "No messages"}</div>
                     </div>
                   </div>
@@ -288,7 +350,9 @@ export function MessagesPage() {
             ) : (
               availableContacts.map((contact) => {
                 const isActive = selectedContact === contact.authorId;
-                const lastMsg = messages.filter((m) => m.authorId === contact.authorId).slice(-1)[0];
+                const contactMessages = messages.filter((m) => m.authorId === contact.authorId);
+                const lastMsg = contactMessages[0];
+                const threadStatus = getConversationThreadStatus(contactMessages);
                 const initials = contact.authorName ? contact.authorName.substring(0, 2).toUpperCase() : "U";
                 return (
                   <div
@@ -301,7 +365,10 @@ export function MessagesPage() {
                   >
                     <div className="chat-item-avatar">{initials}</div>
                     <div className="chat-item-info">
-                      <div className="chat-item-name">{contact.authorName}</div>
+                      <div className="chat-item-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{contact.authorName}</span>
+                        {threadStatus ? <ThreadStatusBadge status={threadStatus} /> : null}
+                      </div>
                       <div className="chat-item-subtitle">{lastMsg ? lastMsg.content : "No messages"}</div>
                     </div>
                   </div>
@@ -318,7 +385,10 @@ export function MessagesPage() {
               {/* CHAT HEADER */}
               <div className="chat-feed-header">
                 <div className="chat-feed-header-info">
-                  <h3>{currentChatLabel}</h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <h3>{currentChatLabel}</h3>
+                    {currentConversationStatus ? <ThreadStatusBadge status={currentConversationStatus} /> : null}
+                  </div>
                   <p className="muted">
                     {selectedChannel ? `Simulated Discord support ticket channel` : `Customer Direct Conversation`}
                   </p>
@@ -328,16 +398,16 @@ export function MessagesPage() {
                     className="button secondary small"
                     type="button"
                     onClick={handleResolveThread}
-                    disabled={resolving}
+                    disabled={resolving || isCurrentConversationResolved}
                     style={{
-                      background: "#fef2f2",
-                      color: "#991b1b",
-                      border: "1px solid #fee2e2",
+                      background: isCurrentConversationResolved ? "#f1f5f9" : "#fef2f2",
+                      color: isCurrentConversationResolved ? "#475569" : "#991b1b",
+                      border: isCurrentConversationResolved ? "1px solid #e2e8f0" : "1px solid #fee2e2",
                       borderRadius: 8,
                       fontWeight: 600,
                     }}
                   >
-                    {resolving ? "Resolving..." : "Resolve Thread"}
+                    {resolving ? "Resolving..." : isCurrentConversationResolved ? "Resolved" : "Resolve Thread"}
                   </button>
                 </div>
               </div>
@@ -370,7 +440,19 @@ export function MessagesPage() {
                             {message.threadId && (
                               <>
                                 <span>•</span>
-                                <span title={`Thread ID: ${message.threadId}`}>Thread: {message.threadId.slice(-4)}</span>
+                                <span title={`Thread ID: ${message.threadId}`}>
+                                  Thread: {message.threadId.slice(-4)}
+                                  {message.threadStatus ? ` (${message.threadStatus})` : ""}
+                                </span>
+                              </>
+                            )}
+                            {message.sessionId && (
+                              <>
+                                <span>•</span>
+                                <span title={`Session ID: ${message.sessionId}`}>
+                                  Session: {message.sessionId.slice(-4)}
+                                  {message.sessionStatus ? ` (${message.sessionStatus})` : ""}
+                                </span>
                               </>
                             )}
                           </div>
@@ -384,27 +466,52 @@ export function MessagesPage() {
 
               {/* CHAT INPUT BAR */}
               <div className="chat-input-bar">
-                <form onSubmit={handleSendMessage} className="chat-input-fields">
-                  <input
-                    className="chat-input-text"
-                    type="text"
-                    placeholder={`Message as ${selectedContact ? "customer" : "customer in " + currentChatLabel}...`}
-                    value={testMessage}
-                    onChange={(e) => setTestMessage(e.target.value)}
-                    disabled={submitting}
-                  />
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "#475569", whiteSpace: "nowrap" }}>
+                {isCurrentConversationResolved ? (
+                  <div
+                    style={{
+                      alignItems: "center",
+                      display: "flex",
+                      justifyContent: "center",
+                      minHeight: 40,
+                      textAlign: "center",
+                      width: "100%",
+                    }}
+                  >
+                    <p
+                      style={{
+                        margin: 0,
+                        color: "#b91c1c",
+                        fontSize: "0.82rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      This conversation is resolved.
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSendMessage} className="chat-input-fields">
                     <input
-                      type="checkbox"
-                      checked={autoReply}
-                      onChange={(e) => setAutoReply(e.target.checked)}
+                      className="chat-input-text"
+                      type="text"
+                      placeholder={`Message as ${selectedContact ? "customer" : "customer in " + currentChatLabel}...`}
+                      value={testMessage}
+                      onChange={(e) => setTestMessage(e.target.value)}
+                      disabled={submitting}
                     />
-                    AI Auto-Reply
-                  </label>
-                  <button className="button" type="submit" disabled={submitting || !testMessage.trim()} style={{ borderRadius: 20, padding: "10px 20px" }}>
-                    {submitting ? "..." : "Send"}
-                  </button>
-                </form>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "#475569", whiteSpace: "nowrap" }}>
+                      <input
+                        type="checkbox"
+                        checked={autoReply}
+                        onChange={(e) => setAutoReply(e.target.checked)}
+                        disabled={submitting}
+                      />
+                      AI Auto-Reply
+                    </label>
+                    <button className="button" type="submit" disabled={submitting || !testMessage.trim()} style={{ borderRadius: 20, padding: "10px 20px" }}>
+                      {submitting ? "..." : "Send"}
+                    </button>
+                  </form>
+                )}
               </div>
             </>
           ) : (
@@ -420,5 +527,37 @@ export function MessagesPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function getConversationThreadStatus(messages: CustomerMessage[]): ConversationThreadStatus | undefined {
+  if (messages.some((message) => message.threadStatus === ThreadStatus.Open)) {
+    return ThreadStatus.Open;
+  }
+
+  if (messages.some((message) => message.threadStatus === ThreadStatus.Resolved)) {
+    return ThreadStatus.Resolved;
+  }
+
+  return undefined;
+}
+
+function ThreadStatusBadge({ status }: { status: ConversationThreadStatus }) {
+  const isResolved = status === ThreadStatus.Resolved;
+
+  return (
+    <span
+      className="badge"
+      style={{
+        flexShrink: 0,
+        padding: "2px 7px",
+        fontSize: "0.66rem",
+        background: isResolved ? "#f1f5f9" : "#ecfdf5",
+        color: isResolved ? "#475569" : "#15803d",
+        border: isResolved ? "1px solid #e2e8f0" : "1px solid #bbf7d0",
+      }}
+    >
+      {status}
+    </span>
   );
 }

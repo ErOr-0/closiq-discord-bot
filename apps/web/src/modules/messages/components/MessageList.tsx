@@ -1,3 +1,13 @@
+export enum ThreadStatus {
+  Open = "open",
+  Resolved = "resolved",
+}
+
+export enum SessionStatus {
+  Active = "active",
+  Completed = "completed",
+}
+
 export type CustomerMessage = {
   id: string;
   discordMessageId?: string;
@@ -11,7 +21,9 @@ export type CustomerMessage = {
   responseToMessageId?: string;
   aiGenerated: boolean;
   threadId?: string;
+  threadStatus?: ThreadStatus;
   sessionId?: string;
+  sessionStatus?: SessionStatus;
   createdAt: string;
 };
 
@@ -78,6 +90,7 @@ export function MessageList({ messages, onChannelSelect, onContactSelect }: Mess
                     title={`Thread ID: ${message.threadId}`}
                   >
                     Thread: {message.threadId.slice(-6)}
+                    {message.threadStatus ? ` (${message.threadStatus})` : ""}
                   </span>
                 )}
                 {message.sessionId && (
@@ -87,6 +100,7 @@ export function MessageList({ messages, onChannelSelect, onContactSelect }: Mess
                     title={`Session ID: ${message.sessionId}`}
                   >
                     Session: {message.sessionId.slice(-6)}
+                    {message.sessionStatus ? ` (${message.sessionStatus})` : ""}
                   </span>
                 )}
               </div>
