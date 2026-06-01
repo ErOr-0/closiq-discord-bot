@@ -56,6 +56,9 @@ const orderSchema = new Schema(
       required: true,
       trim: true,
     },
+    completedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
@@ -63,6 +66,7 @@ const orderSchema = new Schema(
 );
 
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ completedAt: -1 });
 
 export type OrderRecord = InferSchemaType<typeof orderSchema>;
 export type OrderDocument = HydratedDocument<OrderRecord>;

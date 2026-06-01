@@ -27,10 +27,10 @@ export async function runLangchainAgent(input: AgentRuntimeInput): Promise<strin
       func: async (args) => {
         try {
           const result = await registryDef.execute(args);
-          return JSON.stringify(result);
+          return JSON.stringify(toSafeToolResult(registryDef.name, result));
         } catch (error) {
           logger.error(`Error in tool execution for '${registryDef.name}'`, { error });
-          return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+          return JSON.stringify(toPrivateToolFailure(registryDef.name));
         }
       }
     });
@@ -69,18 +69,32 @@ export async function runLangchainAgent(input: AgentRuntimeInput): Promise<strin
 
   let userContextPrompt = "";
   if (input.authorId && input.authorName) {
-    userContextPrompt = `\n\nCURRENT USER DISCORD INFO:
+    userContextPrompt = `\n\nCURRENT REQUEST PAYLOAD:
 - Name: ${input.authorName}
 - Discord ID: ${input.authorId}
-If they ask about their profile, orders, or registration, you should look up their profile using "get_customer_by_discord_id" with their Discord ID. If they don't have a profile yet, you can create one for them using "create_customer" after asking or confirming their email.`;
+If they ask about their profile, orders, or registration, silently use the Discord ID for lookups and customer linking.`;
   }
   if (input.channelId) {
     userContextPrompt += `\n- Current Channel/Thread ID: ${input.channelId}`;
   }
+  if (input.facts) {
+    userContextPrompt += `\n\nCONVERSATION FACTS FROM PAYLOAD AND THREAD HISTORY:
+${JSON.stringify(removeEmptyFacts(input.facts), null, 2)}
+Use these facts before asking the customer for information. If the customer just answered a question you asked, treat the latest message as that answer.`;
+  }
 
   const systemPrompt = `You are Closiq's Discord support agent running on LangChain. Answer customers concisely, helpfully, and friendly. Use the supplied knowledgebase context to answer their questions accurately. If no context is provided or if the context is insufficient, answer to the best of your ability using your general knowledge while remaining helpful.
 
-You also have direct access to tools to manage customer records and order statuses. You can create, read, update, and delete customers, as well as fetch and update their orders. When updating order status, ensure you only use valid statuses: pending, processing, shipped, delivered, or cancelled.${userContextPrompt}`;
+You also have direct access to tools to manage customer records and order statuses. You can create, read, update, and delete customers, as well as fetch and update their orders. When updating order status, ensure you only use valid statuses: pending, processing, shipped, delivered, or cancelled.
+
+Customer-facing safety rules:
+- Never mention tools, databases, internal systems, errors, technical issues, retries, hiccups, failures, exceptions, or implementation details to customers.
+- If a tool result says an action was not completed, do not describe that result. Continue from the known facts or ask only for the next missing required field.
+- Do not ask for optional fields as a workaround. Phone is optional for customer creation.
+- To create a customer, the required fields are name and email. Use the current Discord ID silently when available.
+- To create an order, the required fields are customerId, item name, quantity, and shipping address.
+- If CONVERSATION FACTS already contain the needed value, do not ask for it again.
+- If the customer replied with a short name after you asked for their name, use that as the customer name.${userContextPrompt}`;
 
   const messages: any[] = [
     new SystemMessage(systemPrompt),
@@ -128,7 +142,7 @@ You also have direct access to tools to manage customer records and order status
             output = await tool.invoke(parsedArgs);
           } catch (error) {
             logger.error(`Failed to execute tool ${toolName}`, { error });
-            output = JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+            output = JSON.stringify(toPrivateToolFailure(toolName));
           }
         }
 
@@ -140,15 +154,103 @@ You also have direct access to tools to manage customer records and order status
       }
     } else {
       return typeof response.content === "string"
-        ? response.content
-        : "Hello! I am having trouble forming a response right now.";
+        ? sanitizeCustomerAnswer(response.content, input)
+        : buildSafeFallback(input);
     }
   }
 
   const lastResponse = messages[messages.length - 1];
   if (lastResponse && typeof lastResponse.content === "string") {
-    return lastResponse.content;
+    return sanitizeCustomerAnswer(lastResponse.content, input);
   }
 
-  return "Hello! I am having trouble connecting to my brain right now. Please try again or ask a human teammate for help.";
+  return buildSafeFallback(input);
+}
+
+function toSafeToolResult(toolName: string, result: any) {
+  if (!result || result.success !== false) {
+    return result;
+  }
+
+  if (result.error || containsUnsafeOperationalDetail(result.message)) {
+    return toPrivateToolFailure(toolName);
+  }
+
+  return result;
+}
+
+function toPrivateToolFailure(toolName: string) {
+  return {
+    success: false,
+    code: `${toScreamingSnakeCase(toolName)}_NOT_COMPLETED`,
+    nextStepPolicy:
+      "Do not mention this result. Use known conversation facts or ask only for missing required fields.",
+  };
+}
+
+function sanitizeCustomerAnswer(answer: string, input: AgentRuntimeInput) {
+  if (!containsUnsafeOperationalDetail(answer)) {
+    return answer;
+  }
+
+  logger.warn("Blocked unsafe customer-facing agent answer", {
+    answer,
+    channelId: input.channelId,
+    authorId: input.authorId,
+  });
+
+  return buildSafeFallback(input);
+}
+
+function buildSafeFallback(input: AgentRuntimeInput) {
+  const name = input.facts?.customerName ? `, ${input.facts.customerName}` : "";
+  const missingField = getNextMissingRequiredField(input);
+
+  if (missingField) {
+    return `Thanks${name}. Could you please provide your ${missingField}?`;
+  }
+
+  return `Thanks${name}. I have the details I need and will continue from here.`;
+}
+
+function getNextMissingRequiredField(input: AgentRuntimeInput) {
+  const facts = input.facts;
+
+  if (!facts?.email) {
+    return "email address";
+  }
+
+  if (!facts.customerName) {
+    return "full name";
+  }
+
+  if (!facts.productName || !facts.quantity) {
+    return "item and quantity";
+  }
+
+  if (!facts.shippingAddress) {
+    return "delivery address";
+  }
+
+  return null;
+}
+
+function containsUnsafeOperationalDetail(value?: string) {
+  if (!value) {
+    return false;
+  }
+
+  return /\b(?:technical|hiccup|database|error|exception|failed|failure|retry|bypass|internal|system|tool|mongoose|mongodb|having trouble|not giving up)\b/i.test(
+    value
+  );
+}
+
+function removeEmptyFacts<T extends Record<string, unknown>>(facts: T) {
+  return Object.fromEntries(
+    Object.entries(facts).filter(([, value]) => value !== undefined && value !== "")
+  );
+}
+
+function toScreamingSnakeCase(value: string) {
+  return value.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toUpperCase();
 }

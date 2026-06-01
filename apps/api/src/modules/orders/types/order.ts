@@ -21,6 +21,7 @@ export type Order = {
   status: OrderStatus;
   trackingNumber?: string;
   shippingAddress: string;
-  createdAt: Date;
-  updatedAt: Date;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 };

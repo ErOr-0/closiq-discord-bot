@@ -4,6 +4,13 @@ export type Customer = {
   name: string;
   email: string;
   phone?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CustomerSummary = Customer & {
+  orderCount: number;
+  completedOrderCount: number;
+  totalEarning: number;
+  lastCompletedOrderAt?: string;
 };

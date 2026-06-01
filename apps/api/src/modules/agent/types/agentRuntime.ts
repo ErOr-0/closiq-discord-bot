@@ -3,6 +3,16 @@ export type AgentConversationMessage = {
   direction: "inbound" | "outbound";
 };
 
+export type AgentConversationFacts = {
+  customerName?: string;
+  email?: string;
+  phone?: string;
+  productName?: string;
+  quantity?: number;
+  shippingAddress?: string;
+  lastRequestedField?: "customerName" | "emailAddress" | "phoneNumber" | "orderDetails" | "shippingAddress";
+};
+
 export type AgentRuntimeInput = {
   question: string;
   context: string;
@@ -10,6 +20,7 @@ export type AgentRuntimeInput = {
   authorName?: string;
   channelId?: string;
   history?: AgentConversationMessage[];
+  facts?: AgentConversationFacts;
 };
 
 export type AgentRuntime = (input: AgentRuntimeInput) => Promise<string>;
