@@ -340,9 +340,14 @@ export const commandDefinitions: Record<string, CommandDefinition> = {
         if (!mongoose.Types.ObjectId.isValid(orderId)) {
           return { success: false, message: "Invalid order ID format." };
         }
-        const updates: Record<string, any> = { status };
+        const updates: Record<string, any> = { $set: { status } };
+        if (status === "delivered") {
+          updates.$set.completedAt = new Date();
+        } else {
+          updates.$unset = { completedAt: "" };
+        }
         if (trackingNumber !== undefined) {
-          updates.trackingNumber = trackingNumber;
+          updates.$set.trackingNumber = trackingNumber;
         }
 
         const order = await OrderModel.findByIdAndUpdate(orderId, updates, { new: true }).populate("customerId", "name email").lean();

@@ -4,9 +4,11 @@ import helmet from "helmet";
 
 import { env } from "./config/env";
 import { agentRouter } from "./modules/agent/routes/agent.routes";
+import { customersRouter } from "./modules/customers/routes/customers.routes";
 import { healthRouter } from "./modules/health/routes/health.routes";
 import { knowledgebaseRouter } from "./modules/knowledgebase/routes/knowledgebase.routes";
 import { messagesRouter } from "./modules/messages/routes/messages.routes";
+import { ordersRouter } from "./modules/orders/routes/orders.routes";
 import { errorHandler, notFoundHandler } from "./shared/middleware/errorHandler";
 import { requestLogger } from "./shared/middleware/requestLogger";
 
@@ -33,6 +35,8 @@ app.get("/", (_req, res) => {
 
 app.use("/api/health", healthRouter);
 app.use("/api/messages", messagesRouter);
+app.use("/api/customers", customersRouter);
+app.use("/api/orders", ordersRouter);
 app.use("/api/knowledgebase", knowledgebaseRouter);
 app.use("/api/agent", agentRouter);
 

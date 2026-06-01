@@ -1,6 +1,10 @@
 import { searchKnowledge } from "../../knowledgebase/services/searchKnowledge.service";
 import { listThreadHistory } from "../../messages/services/listThreadHistory.service";
 import type { AgentAnswer } from "../types/agentAnswer";
+import {
+  buildConversationFacts,
+  removeCurrentMessageFromHistory,
+} from "./conversationFacts.service";
 import { runLangchainAgent } from "./langchainAgent.service";
 
 export async function answerCustomerMessage(input: {
@@ -20,9 +24,15 @@ export async function answerCustomerMessage(input: {
         .join("\n\n")
     : "No relevant knowledgebase context found.";
 
-  const history = input.channelId
+  const rawHistory = input.channelId
     ? await listThreadHistory({ channelId: input.channelId, limit: 40 })
     : [];
+  const history = removeCurrentMessageFromHistory(rawHistory, input.message);
+  const facts = buildConversationFacts(
+    history,
+    { content: input.message, direction: "inbound" },
+    { authorName: input.authorName }
+  );
 
   const answer = await runLangchainAgent({
     question: input.message,
@@ -31,6 +41,7 @@ export async function answerCustomerMessage(input: {
     authorName: input.authorName,
     channelId: input.channelId,
     history,
+    facts,
   });
 
   return {
