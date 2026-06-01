@@ -6,7 +6,16 @@ export type ResolveThreadInput = {
   threadIds?: string[];
 };
 
-export async function resolveThread(input: ResolveThreadInput) {
+export type ResolveThreadResult = {
+  channelId?: string;
+  channelIds: string[];
+  threadStatus: ThreadStatus.Resolved;
+  resolvedThreadCount: number;
+  completedSessionCount: number;
+  alreadyResolved: boolean;
+};
+
+export async function resolveThread(input: ResolveThreadInput): Promise<ResolveThreadResult> {
   const uniqueThreadIds = Array.from(new Set(input.threadIds ?? [])).filter(Boolean);
   const threadLookupConditions = [
     ...(uniqueThreadIds.length > 0 ? [{ _id: { $in: uniqueThreadIds } }] : []),
