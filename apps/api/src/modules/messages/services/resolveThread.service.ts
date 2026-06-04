@@ -35,7 +35,7 @@ export async function resolveThread(input: ResolveThreadInput): Promise<ResolveT
 
   const openThreads = await ThreadModel.find({
     $or: threadLookupConditions,
-    status: ThreadStatus.Open,
+    status: { $in: [ThreadStatus.Open, ThreadStatus.HumanTakeover] },
   })
     .select("_id channelId")
     .lean();
@@ -61,7 +61,7 @@ export async function resolveThread(input: ResolveThreadInput): Promise<ResolveT
 
   const [threadUpdate, sessionUpdate] = await Promise.all([
     ThreadModel.updateMany(
-      { _id: { $in: threadIds }, status: ThreadStatus.Open },
+      { _id: { $in: threadIds }, status: { $in: [ThreadStatus.Open, ThreadStatus.HumanTakeover] } },
       { status: ThreadStatus.Resolved }
     ),
     SessionModel.updateMany(

@@ -19,6 +19,13 @@ type ResolveThreadResponse = {
   alreadyResolved: boolean;
 };
 
+type HumanTakeoverResponse = {
+  channelId: string;
+  threadStatus: ThreadStatus.HumanTakeover;
+  alreadyInHumanTakeover: boolean;
+  threadId: string;
+};
+
 type Contact = {
   authorId: string;
   authorName: string;
@@ -39,6 +46,7 @@ export function MessagesPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [takingOver, setTakingOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // New Chat Form State
@@ -156,6 +164,60 @@ export function MessagesPage() {
     }
   }
 
+  async function handleSendHumanReply(event: FormEvent) {
+    event.preventDefault();
+
+    if (!testMessage.trim()) {
+      return;
+    }
+
+    if (isCurrentConversationResolved) {
+      setError("Resolved conversations are read-only.");
+      return;
+    }
+
+    if (!isCurrentConversationHumanTakeover) {
+      setError("Request human takeover before sending a support reply.");
+      return;
+    }
+
+    const activeChannel = getActiveChannelId();
+    if (!activeChannel) {
+      setError("Select a Discord conversation before sending a support reply.");
+      return;
+    }
+
+    const lastInbound = [...activeChatMessages]
+      .reverse()
+      .find((message) => message.direction === "inbound");
+    const channelName = availableChannels.find((channel) => channel.id === activeChannel)?.name;
+    const hasRealDiscordMessages = activeChatMessages.some(
+      (message) => message.discordMessageId && !message.discordMessageId.startsWith("manual-")
+    );
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiPost<ApiEnvelope<CustomerMessage>>("/messages/outbound", {
+        channelId: activeChannel,
+        channelName,
+        authorId: "human-agent",
+        authorName: "Support Agent",
+        content: testMessage,
+        responseToMessageId: lastInbound?.id,
+        deliverToDiscord: hasRealDiscordMessages,
+      });
+
+      setTestMessage("");
+      await loadMessages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send support reply");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   // Handle Thread Resolution
   async function handleResolveThread() {
     let activeChannel = selectedChannel;
@@ -191,6 +253,26 @@ export function MessagesPage() {
     }
   }
 
+  async function handleRequestHumanTakeover() {
+    const activeChannel = getActiveChannelId();
+    if (!activeChannel || isCurrentConversationResolved || isCurrentConversationHumanTakeover) return;
+
+    setTakingOver(true);
+    setError(null);
+    try {
+      const response = await apiPatch<ApiEnvelope<HumanTakeoverResponse>>("/messages/threads/takeover", {
+        channelId: activeChannel,
+        reason: "Manual takeover requested from chat panel.",
+      });
+      markHumanTakeoverConversation(response.data.channelId);
+      await loadMessages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to request human takeover");
+    } finally {
+      setTakingOver(false);
+    }
+  }
+
   function markResolvedConversation(
     result: ResolveThreadResponse,
     activeChannel: string,
@@ -221,6 +303,34 @@ export function MessagesPage() {
         };
       })
     );
+  }
+
+  function markHumanTakeoverConversation(channelId: string) {
+    setMessages((currentMessages) =>
+      currentMessages.map((message) => {
+        if (message.channelId !== channelId) {
+          return message;
+        }
+
+        return {
+          ...message,
+          threadStatus: ThreadStatus.HumanTakeover,
+        };
+      })
+    );
+  }
+
+  function getActiveChannelId() {
+    if (selectedChannel) {
+      return selectedChannel;
+    }
+
+    if (selectedContact) {
+      const contactMsg = messages.find((message) => message.authorId === selectedContact);
+      return contactMsg?.channelId || "";
+    }
+
+    return "";
   }
 
   // Handle adding/testing a completely new channel conversation
@@ -273,6 +383,7 @@ export function MessagesPage() {
 
   const currentConversationStatus = getConversationThreadStatus(activeChatMessages);
   const isCurrentConversationResolved = currentConversationStatus === ThreadStatus.Resolved;
+  const isCurrentConversationHumanTakeover = currentConversationStatus === ThreadStatus.HumanTakeover;
 
   const currentChatLabel = selectedChannel
     ? `#${availableChannels.find((c) => c.id === selectedChannel)?.name || selectedChannel}`
@@ -393,7 +504,26 @@ export function MessagesPage() {
                     {selectedChannel ? `Simulated Discord support ticket channel` : `Customer Direct Conversation`}
                   </p>
                 </div>
-                <div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    className="button secondary small"
+                    type="button"
+                    onClick={handleRequestHumanTakeover}
+                    disabled={takingOver || isCurrentConversationResolved || isCurrentConversationHumanTakeover}
+                    style={{
+                      background: isCurrentConversationHumanTakeover ? "#fff7ed" : "#eff6ff",
+                      color: isCurrentConversationHumanTakeover ? "#9a3412" : "#1d4ed8",
+                      border: isCurrentConversationHumanTakeover ? "1px solid #fed7aa" : "1px solid #bfdbfe",
+                      borderRadius: 8,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {takingOver
+                      ? "Taking over..."
+                      : isCurrentConversationHumanTakeover
+                      ? "Human Takeover"
+                      : "Take Over"}
+                  </button>
                   <button
                     className="button secondary small"
                     type="button"
@@ -488,6 +618,20 @@ export function MessagesPage() {
                       This conversation is resolved.
                     </p>
                   </div>
+                ) : isCurrentConversationHumanTakeover ? (
+                  <form onSubmit={handleSendHumanReply} className="chat-input-fields">
+                    <input
+                      className="chat-input-text"
+                      type="text"
+                      placeholder="Message as support agent..."
+                      value={testMessage}
+                      onChange={(e) => setTestMessage(e.target.value)}
+                      disabled={submitting}
+                    />
+                    <button className="button" type="submit" disabled={submitting || !testMessage.trim()} style={{ borderRadius: 20, padding: "10px 20px" }}>
+                      {submitting ? "..." : "Reply"}
+                    </button>
+                  </form>
                 ) : (
                   <form onSubmit={handleSendMessage} className="chat-input-fields">
                     <input
@@ -531,6 +675,10 @@ export function MessagesPage() {
 }
 
 function getConversationThreadStatus(messages: CustomerMessage[]): ConversationThreadStatus | undefined {
+  if (messages.some((message) => message.threadStatus === ThreadStatus.HumanTakeover)) {
+    return ThreadStatus.HumanTakeover;
+  }
+
   if (messages.some((message) => message.threadStatus === ThreadStatus.Open)) {
     return ThreadStatus.Open;
   }
@@ -544,6 +692,7 @@ function getConversationThreadStatus(messages: CustomerMessage[]): ConversationT
 
 function ThreadStatusBadge({ status }: { status: ConversationThreadStatus }) {
   const isResolved = status === ThreadStatus.Resolved;
+  const isHumanTakeover = status === ThreadStatus.HumanTakeover;
 
   return (
     <span
@@ -552,12 +701,12 @@ function ThreadStatusBadge({ status }: { status: ConversationThreadStatus }) {
         flexShrink: 0,
         padding: "2px 7px",
         fontSize: "0.66rem",
-        background: isResolved ? "#f1f5f9" : "#ecfdf5",
-        color: isResolved ? "#475569" : "#15803d",
-        border: isResolved ? "1px solid #e2e8f0" : "1px solid #bbf7d0",
+        background: isHumanTakeover ? "#fff7ed" : isResolved ? "#f1f5f9" : "#ecfdf5",
+        color: isHumanTakeover ? "#9a3412" : isResolved ? "#475569" : "#15803d",
+        border: isHumanTakeover ? "1px solid #fed7aa" : isResolved ? "1px solid #e2e8f0" : "1px solid #bbf7d0",
       }}
     >
-      {status}
+      {isHumanTakeover ? "human" : status}
     </span>
   );
 }

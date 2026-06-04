@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
 
+import { sendDiscordChannelMessage } from "../../../integrations/discord/discordGateway";
 import { answerCustomerMessage } from "../../agent/services/answerCustomerMessage.service";
+import { requestHumanTakeover } from "../services/humanTakeover.service";
 import { listRecentMessages } from "../services/listMessages.service";
 import { recordMessage } from "../services/recordMessage.service";
 import { resolveThread } from "../services/resolveThread.service";
@@ -29,6 +31,21 @@ const resolveThreadSchema = z.object({
   message: "channelId or threadIds is required",
 });
 
+const humanTakeoverSchema = z.object({
+  channelId: z.string().min(1),
+  reason: z.string().trim().max(500).optional(),
+});
+
+const manualOutboundSchema = z.object({
+  channelId: z.string().min(1),
+  channelName: z.string().optional(),
+  authorId: z.string().default("human-agent"),
+  authorName: z.string().default("Support Agent"),
+  content: z.string().trim().min(1).max(1900),
+  responseToMessageId: z.string().optional(),
+  deliverToDiscord: z.boolean().default(true),
+});
+
 export async function listMessages(req: Request, res: Response) {
   const query = listMessagesSchema.parse(req.query);
   const data = await listRecentMessages(query);
@@ -41,6 +58,55 @@ export async function resolveOpenThread(req: Request, res: Response) {
   const data = await resolveThread(payload);
 
   res.json({ data });
+}
+
+export async function requestThreadHumanTakeover(req: Request, res: Response) {
+  const payload = humanTakeoverSchema.parse(req.body);
+  const data = await requestHumanTakeover({
+    channelId: payload.channelId,
+    reason: payload.reason,
+    requestedBy: "human",
+  });
+
+  res.json({ data });
+}
+
+export async function createManualOutboundMessage(req: Request, res: Response) {
+  const payload = manualOutboundSchema.parse(req.body);
+  let discordMessageId: string | undefined;
+  let authorId = payload.authorId;
+  let authorName = payload.authorName;
+
+  if (payload.deliverToDiscord) {
+    try {
+      const discordMessage = await sendDiscordChannelMessage({
+        channelId: payload.channelId,
+        content: payload.content,
+      });
+      discordMessageId = discordMessage.id;
+      authorId = discordMessage.author.id;
+      authorName = payload.authorName;
+    } catch (error) {
+      if (!payload.channelId.startsWith("manual-")) {
+        throw error;
+      }
+    }
+  }
+
+  const outbound = await recordMessage({
+    discordMessageId: discordMessageId ?? `manual-${randomUUID()}`,
+    channelId: payload.channelId,
+    channelName: payload.channelName,
+    authorId,
+    authorName,
+    content: payload.content,
+    direction: "outbound",
+    status: "sent",
+    responseToMessageId: payload.responseToMessageId,
+    aiGenerated: false,
+  });
+
+  res.status(201).json({ data: outbound });
 }
 
 export async function createManualInboundMessage(req: Request, res: Response) {
