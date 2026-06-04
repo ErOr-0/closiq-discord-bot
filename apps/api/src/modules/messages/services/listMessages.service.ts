@@ -11,13 +11,18 @@ export async function listRecentMessages(input?: { limit?: number; channelId?: s
   const channelIds = Array.from(new Set(records.map((record) => record.channelId).filter(Boolean)));
   const [threads, openChannelThreads, sessions] = await Promise.all([
     ThreadModel.find({ _id: { $in: threadIds } }).select("_id status").lean(),
-    ThreadModel.find({ channelId: { $in: channelIds }, status: ThreadStatus.Open }).select("channelId").lean(),
+    ThreadModel.find({
+      channelId: { $in: channelIds },
+      status: { $in: [ThreadStatus.Open, ThreadStatus.HumanTakeover] },
+    }).select("channelId status").lean(),
     SessionModel.find({ _id: { $in: sessionIds } }).select("_id status").lean(),
   ]);
   const threadStatuses = new Map(
     threads.map((thread) => [String(thread._id), thread.status as ThreadStatus])
   );
-  const openChannelIds = new Set(openChannelThreads.map((thread) => thread.channelId));
+  const activeChannelThreadStatuses = new Map(
+    openChannelThreads.map((thread) => [thread.channelId, thread.status as ThreadStatus])
+  );
   const sessionStatuses = new Map(
     sessions.map((session) => [String(session._id), session.status as SessionStatus])
   );
@@ -25,7 +30,8 @@ export async function listRecentMessages(input?: { limit?: number; channelId?: s
   const mapped = records.map((record) => {
     const threadStatus =
       (record.threadId ? threadStatuses.get(record.threadId) : undefined) ??
-      (openChannelIds.has(record.channelId) ? ThreadStatus.Open : ThreadStatus.Resolved);
+      activeChannelThreadStatuses.get(record.channelId) ??
+      ThreadStatus.Resolved;
 
     return toCustomerMessage({
       ...(record as unknown as MessageLike),

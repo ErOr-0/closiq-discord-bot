@@ -2,6 +2,7 @@ import { z } from "zod";
 import mongoose from "mongoose";
 import { logger } from "../../../config/logger";
 import { CustomerModel } from "../../customers/models/customer.model";
+import { requestHumanTakeover } from "../../messages/services/humanTakeover.service";
 import { resolveThread } from "../../messages/services/resolveThread.service";
 import { OrderModel } from "../../orders/models/order.model";
 
@@ -392,6 +393,49 @@ export const commandDefinitions: Record<string, CommandDefinition> = {
         };
       } catch (error) {
         logger.error("Error in resolve_current_thread command", { error });
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  },
+
+  request_human_takeover: {
+    name: "request_human_takeover",
+    description:
+      "Escalate the current support thread to a human agent. Use this when the AI cannot answer confidently, lacks needed authority, the customer asks for a person, the request is sensitive, or tool/data problems prevent a safe answer.",
+    parameters: {
+      type: "object",
+      properties: {
+        channelId: {
+          type: "string",
+          description: "The current channel or thread ID (e.g. 'manual-test-channel')",
+        },
+        reason: {
+          type: "string",
+          description: "Short internal reason for the takeover request.",
+        },
+      },
+      required: ["channelId", "reason"],
+    },
+    schema: z.object({
+      channelId: z.string().describe("The current channel or thread ID"),
+      reason: z.string().min(1).max(500).describe("Short internal reason for escalation"),
+    }),
+    execute: async ({ channelId, reason }) => {
+      try {
+        const result = await requestHumanTakeover({
+          channelId,
+          reason,
+          requestedBy: "agent",
+        });
+
+        return {
+          success: true,
+          message: result.alreadyInHumanTakeover
+            ? `Thread ${result.threadId} is already in human takeover.`
+            : `Thread ${result.threadId} moved to human takeover.`,
+        };
+      } catch (error) {
+        logger.error("Error in request_human_takeover command", { error });
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     },

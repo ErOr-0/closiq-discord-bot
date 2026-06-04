@@ -3,7 +3,10 @@ import { Client, Events, GatewayIntentBits, Partials, type Message } from "disco
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { answerCustomerMessage } from "../../modules/agent/services/answerCustomerMessage.service";
+import { isHumanTakeoverActive, requestHumanTakeover } from "../../modules/messages/services/humanTakeover.service";
 import { markMessageAnswered, recordMessage } from "../../modules/messages/services/recordMessage.service";
+
+let activeDiscordClient: Client | null = null;
 
 export async function startDiscordGateway() {
   if (!env.DISCORD_BOT_TOKEN) {
@@ -20,6 +23,7 @@ export async function startDiscordGateway() {
     ],
     partials: [Partials.Channel],
   });
+  activeDiscordClient = client;
 
   client.once(Events.ClientReady, (readyClient) => {
     logger.info("Discord gateway connected", {
@@ -43,6 +47,19 @@ export async function startDiscordGateway() {
   await client.login(env.DISCORD_BOT_TOKEN);
 
   return client;
+}
+
+export async function sendDiscordChannelMessage(input: { channelId: string; content: string }) {
+  if (!activeDiscordClient) {
+    throw new Error("Discord gateway is not connected");
+  }
+
+  const channel = await activeDiscordClient.channels.fetch(input.channelId);
+  if (!channel || !("send" in channel) || typeof channel.send !== "function") {
+    throw new Error(`Discord channel ${input.channelId} cannot receive messages`);
+  }
+
+  return channel.send(input.content);
 }
 
 async function handleMessage(message: Message) {
@@ -78,12 +95,31 @@ async function handleMessage(message: Message) {
     return;
   }
 
-  const agentResponse = await answerCustomerMessage({
-    message: message.content,
-    authorId: message.author.id,
-    authorName: message.author.username,
-    channelId: message.channelId,
-  });
+  if (await isHumanTakeoverActive(message.channelId)) {
+    return;
+  }
+
+  let agentResponse;
+  try {
+    agentResponse = await answerCustomerMessage({
+      message: message.content,
+      authorId: message.author.id,
+      authorName: message.author.username,
+      channelId: message.channelId,
+    });
+  } catch (error) {
+    await requestHumanTakeover({
+      channelId: message.channelId,
+      reason: "AI failed while generating a reply.",
+      requestedBy: "system",
+    });
+    throw error;
+  }
+
+  if (await isHumanTakeoverActive(message.channelId)) {
+    return;
+  }
+
   const replyContent = agentResponse.answer.slice(0, 1900);
 
   const reply = await message.reply({

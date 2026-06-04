@@ -100,6 +100,15 @@ const threadSchema = new Schema(
       default: ThreadStatus.Open,
       required: true,
     },
+    humanTakeoverReason: {
+      type: String,
+    },
+    humanTakeoverRequestedBy: {
+      type: String,
+    },
+    humanTakeoverAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

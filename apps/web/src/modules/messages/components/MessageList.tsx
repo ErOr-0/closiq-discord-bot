@@ -1,5 +1,6 @@
 export enum ThreadStatus {
   Open = "open",
+  HumanTakeover = "human_takeover",
   Resolved = "resolved",
 }
 

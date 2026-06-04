@@ -24,8 +24,11 @@ export async function recordMessage(input: RecordMessageInput) {
     }
   }
 
-  // Find or create open thread for this channel
-  let thread = await ThreadModel.findOne({ channelId: input.channelId, status: ThreadStatus.Open });
+  // Find or create active thread for this channel. Human takeover is still active.
+  let thread = await ThreadModel.findOne({
+    channelId: input.channelId,
+    status: { $in: [ThreadStatus.Open, ThreadStatus.HumanTakeover] },
+  });
   if (!thread) {
     thread = await ThreadModel.create({
       channelId: input.channelId,

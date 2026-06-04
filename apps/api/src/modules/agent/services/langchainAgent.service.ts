@@ -4,11 +4,12 @@ import { SystemMessage, HumanMessage, AIMessage, ToolMessage } from "@langchain/
 
 import { env } from "../../../config/env";
 import { logger } from "../../../config/logger";
-import { CommandModel } from "../models/command.model";
+import { CommandModel, seedCommands } from "../models/command.model";
 import type { AgentRuntimeInput } from "../types/agentRuntime";
 import { commandDefinitions } from "../tools/commandRegistry";
 
 export async function runLangchainAgent(input: AgentRuntimeInput): Promise<string> {
+  await seedCommands();
   const enabledCommandsFromDb = await CommandModel.find({ enabled: true }).lean();
 
   const langchainTools: DynamicStructuredTool[] = [];
@@ -85,7 +86,7 @@ Use these facts before asking the customer for information. If the customer just
 
   const systemPrompt = `You are Closiq's Discord support agent running on LangChain. Answer customers concisely, helpfully, and friendly. Use the supplied knowledgebase context to answer their questions accurately. If no context is provided or if the context is insufficient, answer to the best of your ability using your general knowledge while remaining helpful.
 
-You also have direct access to tools to manage customer records and order statuses. You can create, read, update, and delete customers, as well as fetch and update their orders. When updating order status, ensure you only use valid statuses: pending, processing, shipped, delivered, or cancelled.
+You also have direct access to tools to manage customer records, order statuses, thread resolution, and human takeover. You can create, read, update, and delete customers, as well as fetch and update their orders. When updating order status, ensure you only use valid statuses: pending, processing, shipped, delivered, or cancelled.
 
 Customer-facing safety rules:
 - Never mention tools, databases, internal systems, errors, technical issues, retries, hiccups, failures, exceptions, or implementation details to customers.
@@ -94,7 +95,8 @@ Customer-facing safety rules:
 - To create a customer, the required fields are name and email. Use the current Discord ID silently when available.
 - To create an order, the required fields are customerId, item name, quantity, and shipping address.
 - If CONVERSATION FACTS already contain the needed value, do not ask for it again.
-- If the customer replied with a short name after you asked for their name, use that as the customer name.${userContextPrompt}`;
+- If the customer replied with a short name after you asked for their name, use that as the customer name.
+- If you cannot answer confidently, lack enough knowledgebase or account/order context, cannot safely complete the request, encounter repeated tool/data problems, or the customer asks for a human, call request_human_takeover with the current channel ID and a short internal reason.${userContextPrompt}`;
 
   const messages: any[] = [
     new SystemMessage(systemPrompt),

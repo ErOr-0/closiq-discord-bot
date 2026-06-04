@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { AppError } from "../../../shared/errors/AppError";
 import { answerCustomerMessage } from "../services/answerCustomerMessage.service";
-import { CommandModel } from "../models/command.model";
+import { CommandModel, seedCommands } from "../models/command.model";
 
 const answerSchema = z.object({
   message: z.string().trim().min(1),
@@ -28,6 +28,7 @@ export async function answer(req: Request, res: Response) {
 }
 
 export async function listCommands(_req: Request, res: Response) {
+  await seedCommands();
   const commands = await CommandModel.find().sort({ name: 1 }).lean();
   res.json({ data: commands });
 }
