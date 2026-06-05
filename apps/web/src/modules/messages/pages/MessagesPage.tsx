@@ -106,11 +106,6 @@ export function MessagesPage() {
     return () => window.clearInterval(timer);
   }, [loadMessages]);
 
-  // Scroll to bottom when messages or selected channel change
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, selectedChannel, selectedContact]);
-
   // Handle simulated message submission (Inbound customer message)
   async function handleSendMessage(event: FormEvent) {
     event.preventDefault();
@@ -380,6 +375,21 @@ export function MessagesPage() {
       return false;
     })
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  const activeConversationKey = selectedChannel
+    ? `channel:${selectedChannel}`
+    : selectedContact
+    ? `contact:${selectedContact}`
+    : "";
+  const lastActiveMessage = activeChatMessages.at(-1);
+  const lastActiveMessageKey = lastActiveMessage
+    ? `${lastActiveMessage.id}:${lastActiveMessage.createdAt}`
+    : "empty";
+
+  // Scroll only when the visible conversation changes or receives a new last message.
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeConversationKey, lastActiveMessageKey]);
 
   const currentConversationStatus = getConversationThreadStatus(activeChatMessages);
   const isCurrentConversationResolved = currentConversationStatus === ThreadStatus.Resolved;
